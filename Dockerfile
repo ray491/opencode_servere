@@ -25,5 +25,5 @@ RUN mkdir -p /root/.config/opencode \
     && cp /app/opencode.json /root/.config/opencode/opencode.json
 
 EXPOSE 4096
-
+EXPOSE 1455
 CMD ["opencode", "serve", "--hostname", "0.0.0.0"]
