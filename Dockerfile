@@ -26,4 +26,4 @@ RUN mkdir -p /root/.config/opencode \
 
 EXPOSE 4096
 
-CMD ["opencode", "serve"]
+CMD ["opencode", "serve", "--hostname 0.0.0.0"]
