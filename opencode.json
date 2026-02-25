@@ -1,0 +1,12 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "ai_browser_mcp_server": {
+      "type": "local",
+      "command": [
+        "python3",
+        "/app/mcp_server.py"
+      ]
+    }
+  }
+}
