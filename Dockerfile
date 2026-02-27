@@ -2,7 +2,6 @@ FROM node:20-bookworm
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
     MCP_HEADLESS=false \
     MCP_VIDEO_DIR=/app/recordings
 
@@ -12,13 +11,14 @@ RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.l
     python3 \
     python3-pip \
     python3-venv \
-    chromium \
     ffmpeg \
     xvfb \
-    vsftpd \
+    xauth \
+    openssh-server \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3 -m pip install --no-cache-dir mcp playwright --break-system-packages
+RUN python3 -m pip install --no-cache-dir mcp playwright aiohttp --break-system-packages \
+    && playwright install --with-deps
 RUN npm i -g opencode-ai
 
 WORKDIR /app
@@ -31,31 +31,19 @@ RUN mkdir -p /root/.config/opencode \
 
 RUN mkdir -p /app/recordings
 
-# Configure vsftpd
-RUN echo "listen=YES" > /etc/vsftpd.conf \
-    && echo "listen_ipv6=NO" >> /etc/vsftpd.conf \
-    && echo "anonymous_enable=NO" >> /etc/vsftpd.conf \
-    && echo "local_enable=YES" >> /etc/vsftpd.conf \
-    && echo "write_enable=YES" >> /etc/vsftpd.conf \
-    && echo "local_umask=022" >> /etc/vsftpd.conf \
-    && echo "chroot_local_user=NO" >> /etc/vsftpd.conf \
-    && echo "allow_writeable_chroot=YES" >> /etc/vsftpd.conf \
-    && echo "pasv_enable=YES" >> /etc/vsftpd.conf \
-    && echo "pasv_min_port=21000" >> /etc/vsftpd.conf \
-    && echo "pasv_max_port=21010" >> /etc/vsftpd.conf \
-    && echo "seccomp_sandbox=NO" >> /etc/vsftpd.conf
+# Configure SSH server
+RUN mkdir /var/run/sshd \
+    && echo "root:rootpass" | chpasswd \
+    && sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config \
+    && sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
 
-# Create FTP user (user: ftpuser, password: ftppass — change as needed)
-RUN useradd -m ftpuser \
-    && echo "ftpuser:ftppass" | chpasswd
-
-# Entrypoint script to start vsftpd + opencode
-RUN printf '#!/bin/bash\nvsftpd /etc/vsftpd.conf &\nexec xvfb-run -a opencode serve --hostname 0.0.0.0\n' > /entrypoint.sh \
+# Entrypoint script to start sshd + opencode
+RUN printf '#!/bin/bash\nset -e\n/usr/sbin/sshd\nXvfb :99 -screen 0 1280x720x24 &\nsleep 1\nexport DISPLAY=:99\nexec opencode serve --hostname 0.0.0.0\n' > /entrypoint.sh \
     && chmod +x /entrypoint.sh
 
 EXPOSE 4096
+EXPOSE 80
 EXPOSE 1455
-EXPOSE 21
-EXPOSE 21000-21010
+EXPOSE 22
 
 CMD ["/entrypoint.sh"]
