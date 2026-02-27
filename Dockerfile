@@ -2,7 +2,6 @@ FROM node:20-bookworm
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
     MCP_HEADLESS=false \
     MCP_VIDEO_DIR=/app/recordings
 
@@ -12,14 +11,14 @@ RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.l
     python3 \
     python3-pip \
     python3-venv \
-    chromium \
     ffmpeg \
     xvfb \
     xauth \
     openssh-server \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3 -m pip install --no-cache-dir mcp playwright --break-system-packages
+RUN python3 -m pip install --no-cache-dir mcp playwright --break-system-packages \
+    && playwright install --with-deps
 RUN npm i -g opencode-ai
 
 WORKDIR /app
