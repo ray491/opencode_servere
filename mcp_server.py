@@ -7,10 +7,14 @@ Falls back to Playwright's bundled Chromium if Chrome isn't found.
 
 import asyncio
 import base64
+import os
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 import urllib.parse
+from datetime import datetime
 from pathlib import Path
 
 try:
@@ -29,7 +33,8 @@ except ImportError:
 
 # ── Config ────────────────────────────────────────────────────────────────────
 SANDBOX_PROFILE = Path(tempfile.gettempdir()) / "browser-mcp-sandbox"
-HEADLESS = True
+HEADLESS = os.getenv("MCP_HEADLESS", "false").strip().lower() in {"1", "true", "yes", "on"}
+RECORD_VIDEO_DIR = Path(os.getenv("MCP_VIDEO_DIR", "/app/recordings"))
 
 # Point to your REAL Chrome — avoids bot fingerprints that trigger CAPTCHAs.
 # Set to None to use Playwright's bundled Chromium instead.
@@ -86,6 +91,7 @@ async def get_page():
     if _page is None:
         _pw = await async_playwright().start()
         SANDBOX_PROFILE.mkdir(parents=True, exist_ok=True)
+        RECORD_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 
         chrome_path = find_chrome()
 
@@ -96,6 +102,8 @@ async def get_page():
             args=CHROMIUM_ARGS,
             viewport={"width": 1280, "height": 800},
             accept_downloads=False,
+            record_video_dir=str(RECORD_VIDEO_DIR),
+            record_video_size={"width": 1280, "height": 800},
             # Spoof a real user agent
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -138,13 +146,62 @@ async def get_page():
     return _page
 
 
+def _mp4_path_from_webm(webm_path: Path) -> Path:
+    stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    base = webm_path.stem or f"mcp_recording_{stamp}"
+    return webm_path.with_name(f"{base}_{stamp}.mp4")
+
+
+def _transcode_to_mp4(webm_path: Path) -> Path | None:
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        print("[browser-mcp] ffmpeg not found; keeping webm recording", file=sys.stderr)
+        return None
+
+    mp4_path = _mp4_path_from_webm(webm_path)
+    cmd = [
+        ffmpeg,
+        "-y",
+        "-i",
+        str(webm_path),
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "23",
+        "-pix_fmt",
+        "yuv420p",
+        str(mp4_path),
+    ]
+
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        webm_path.unlink(missing_ok=True)
+        return mp4_path
+    except Exception as e:
+        print(f"[browser-mcp] ffmpeg failed: {type(e).__name__}: {e}", file=sys.stderr)
+        return None
+
+
 async def close_all():
     global _pw, _context, _page
+    video_path = None
+    if _page and _page.video:
+        try:
+            await _page.close()
+            video_path = Path(await _page.video.path())
+        except Exception as e:
+            print(f"[browser-mcp] Video finalize failed: {type(e).__name__}: {e}", file=sys.stderr)
     if _context:
         await _context.close()
     if _pw:
         await _pw.stop()
     _pw = _context = _page = None
+    if video_path and video_path.exists():
+        mp4_path = _transcode_to_mp4(video_path)
+        if mp4_path:
+            print(f"[browser-mcp] Recording saved: {mp4_path}", file=sys.stderr)
 
 
 async def snap() -> str:
@@ -331,7 +388,10 @@ async def _run(name: str, a: dict) -> CallToolResult:
 # ── Entry point ───────────────────────────────────────────────────────────────
 async def main():
     async with stdio_server() as (r, w):
-        await app.run(r, w, app.create_initialization_options())
+        try:
+            await app.run(r, w, app.create_initialization_options())
+        finally:
+            await close_all()
 
 
 if __name__ == "__main__":
