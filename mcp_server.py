@@ -209,6 +209,14 @@ async def close_all():
             print(f"[browser-mcp] ERROR: {e}", file=sys.stderr)
             sys.exit(1)
 
+    # Failsafe: convert any remaining .webm files left by Playwright
+    for webm in RECORD_VIDEO_DIR.glob("*.webm"):
+        print(f"[browser-mcp] Failsafe converting leftover: {webm.name}", file=sys.stderr)
+        try:
+            _transcode_to_mp4(webm)
+        except RuntimeError as e:
+            print(f"[browser-mcp] Failsafe ERROR: {e}", file=sys.stderr)
+
 
 async def snap() -> str:
     p = await get_page()
