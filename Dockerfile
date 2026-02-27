@@ -18,6 +18,7 @@ RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.l
     && rm -rf /var/lib/apt/lists/*
 
 RUN python3 -m pip install --no-cache-dir mcp playwright aiohttp --break-system-packages \
+RUN python3 -m pip install --no-cache-dir mcp playwright --break-system-packages \
     && playwright install --with-deps
 RUN npm i -g opencode-ai
 
