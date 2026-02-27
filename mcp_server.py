@@ -405,7 +405,7 @@ HTTP_PORT = int(os.getenv("MCP_HTTP_PORT", "80"))
 
 async def handle_recording(request):
     """GET /recording — returns the latest mp4 as base64 JSON."""
-    mp4_files = sorted(RECORD_VIDEO_DIR.glob("*.mp4"), key=lambda f: f.stat().st_mtime)
+    mp4_files = sorted(RECORD_VIDEO_DIR.glob("*.mp4", "*.webm"), key=lambda f: f.stat().st_mtime)
     if not mp4_files:
         return aiohttp_web.json_response({"error": "No recordings found"}, status=404)
     latest = mp4_files[-1]
@@ -451,3 +451,4 @@ if __name__ == "__main__":
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     asyncio.run(main())
+
