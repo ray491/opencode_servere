@@ -39,7 +39,7 @@ RUN mkdir /var/run/sshd \
     && sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
 
 # Entrypoint script to start sshd + opencode
-RUN printf '#!/bin/bash\n/usr/sbin/sshd\nexec xvfb-run -a opencode serve --hostname 0.0.0.0\n' > /entrypoint.sh \
+RUN printf '#!/bin/bash\nset -e\n/usr/sbin/sshd\nXvfb :99 -screen 0 1280x720x24 &\nsleep 1\nexport DISPLAY=:99\nexec opencode serve --hostname 0.0.0.0\n' > /entrypoint.sh \
     && chmod +x /entrypoint.sh
 
 EXPOSE 4096
