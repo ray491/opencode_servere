@@ -17,6 +17,7 @@ RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.l
     openssh-server \
     && rm -rf /var/lib/apt/lists/*
 
+RUN python3 -m pip install --no-cache-dir mcp playwright aiohttp --break-system-packages \
 RUN python3 -m pip install --no-cache-dir mcp playwright --break-system-packages \
     && playwright install --with-deps
 RUN npm i -g opencode-ai
@@ -42,6 +43,7 @@ RUN printf '#!/bin/bash\nset -e\n/usr/sbin/sshd\nXvfb :99 -screen 0 1280x720x24 
     && chmod +x /entrypoint.sh
 
 EXPOSE 4096
+EXPOSE 80
 EXPOSE 1455
 EXPOSE 22
 

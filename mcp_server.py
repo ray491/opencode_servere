@@ -31,6 +31,12 @@ except ImportError:
     print("ERROR: Run:  pip install playwright && playwright install chromium", file=sys.stderr)
     sys.exit(1)
 
+try:
+    from aiohttp import web as aiohttp_web
+except ImportError:
+    print("ERROR: Run:  pip install aiohttp", file=sys.stderr)
+    sys.exit(1)
+
 # ── Config ────────────────────────────────────────────────────────────────────
 SANDBOX_PROFILE = Path(tempfile.gettempdir()) / "browser-mcp-sandbox"
 HEADLESS = os.getenv("MCP_HEADLESS", "false").strip().lower() in {"1", "true", "yes", "on"}
@@ -385,8 +391,47 @@ async def _run(name: str, a: dict) -> CallToolResult:
     return err(f"Unknown tool: {name}")
 
 
+# ── HTTP Recording Server ─────────────────────────────────────────────────────
+HTTP_PORT = int(os.getenv("MCP_HTTP_PORT", "80"))
+
+
+async def handle_recording(request):
+    """GET /recording — returns the latest mp4 as base64 JSON."""
+    mp4_files = sorted(RECORD_VIDEO_DIR.glob("*.mp4"), key=lambda f: f.stat().st_mtime)
+    if not mp4_files:
+        return aiohttp_web.json_response({"error": "No recordings found"}, status=404)
+    latest = mp4_files[-1]
+    data = base64.b64encode(latest.read_bytes()).decode()
+    return aiohttp_web.json_response({
+        "filename": latest.name,
+        "size_bytes": latest.stat().st_size,
+        "base64": data,
+    })
+
+
+async def handle_delete(request):
+    """DELETE /recordings — deletes all mp4 files in the recordings folder."""
+    deleted = []
+    for f in RECORD_VIDEO_DIR.glob("*.mp4"):
+        f.unlink()
+        deleted.append(f.name)
+    return aiohttp_web.json_response({"deleted": deleted, "count": len(deleted)})
+
+
+async def start_http_server():
+    http_app = aiohttp_web.Application()
+    http_app.router.add_get("/recording", handle_recording)
+    http_app.router.add_delete("/recordings", handle_delete)
+    runner = aiohttp_web.AppRunner(http_app)
+    await runner.setup()
+    site = aiohttp_web.TCPSite(runner, "0.0.0.0", HTTP_PORT)
+    await site.start()
+    print(f"[browser-mcp] HTTP server on port {HTTP_PORT}", file=sys.stderr)
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 async def main():
+    await start_http_server()
     async with stdio_server() as (r, w):
         try:
             await app.run(r, w, app.create_initialization_options())
