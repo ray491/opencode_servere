@@ -152,36 +152,34 @@ def _mp4_path_from_webm(webm_path: Path) -> Path:
     return webm_path.with_name(f"{base}_{stamp}.mp4")
 
 
-def _transcode_to_mp4(webm_path: Path) -> Path | None:
+def _transcode_to_mp4(webm_path: Path) -> Path:
+    """Convert webm to mp4. Always required — raises RuntimeError if ffmpeg is missing or fails."""
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
-        print("[browser-mcp] ffmpeg not found; keeping webm recording", file=sys.stderr)
-        return None
+        raise RuntimeError("ffmpeg not found in PATH — cannot convert recording to mp4")
 
     mp4_path = _mp4_path_from_webm(webm_path)
     cmd = [
         ffmpeg,
         "-y",
-        "-i",
-        str(webm_path),
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-crf",
-        "23",
-        "-pix_fmt",
-        "yuv420p",
+        "-i", str(webm_path),
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-crf", "23",
+        "-pix_fmt", "yuv420p",
         str(mp4_path),
     ]
 
-    try:
-        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        webm_path.unlink(missing_ok=True)
-        return mp4_path
-    except Exception as e:
-        print(f"[browser-mcp] ffmpeg failed: {type(e).__name__}: {e}", file=sys.stderr)
-        return None
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"ffmpeg conversion failed (exit {result.returncode}):\n"
+            + result.stderr.decode(errors="replace")
+        )
+
+    webm_path.unlink(missing_ok=True)
+    print(f"[browser-mcp] Recording saved: {mp4_path}", file=sys.stderr)
+    return mp4_path
 
 
 async def close_all():
@@ -199,9 +197,11 @@ async def close_all():
         await _pw.stop()
     _pw = _context = _page = None
     if video_path and video_path.exists():
-        mp4_path = _transcode_to_mp4(video_path)
-        if mp4_path:
-            print(f"[browser-mcp] Recording saved: {mp4_path}", file=sys.stderr)
+        try:
+            _transcode_to_mp4(video_path)
+        except RuntimeError as e:
+            print(f"[browser-mcp] ERROR: {e}", file=sys.stderr)
+            sys.exit(1)
 
 
 async def snap() -> str:
