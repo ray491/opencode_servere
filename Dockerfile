@@ -44,5 +44,5 @@ RUN printf '#!/bin/bash\nset -e\n/usr/sbin/sshd\nXvfb :99 -screen 0 1280x720x24 
 EXPOSE 4096
 EXPOSE 80
 EXPOSE 22
-
+EXPOSE 1455
 CMD ["/entrypoint.sh"]
