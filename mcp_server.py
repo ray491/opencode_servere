@@ -9,12 +9,9 @@ import asyncio
 import base64
 import os
 import re
-import shutil
-import subprocess
 import sys
 import tempfile
 import urllib.parse
-from datetime import datetime
 from pathlib import Path
 
 try:
@@ -152,70 +149,19 @@ async def get_page():
     return _page
 
 
-def _mp4_path_from_webm(webm_path: Path) -> Path:
-    stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    base = webm_path.stem or f"mcp_recording_{stamp}"
-    return webm_path.with_name(f"{base}_{stamp}.mp4")
-
-
-def _transcode_to_mp4(webm_path: Path) -> Path:
-    """Convert webm to mp4. Always required — raises RuntimeError if ffmpeg is missing or fails."""
-    ffmpeg = shutil.which("ffmpeg")
-    if not ffmpeg:
-        raise RuntimeError("ffmpeg not found in PATH — cannot convert recording to mp4")
-
-    mp4_path = _mp4_path_from_webm(webm_path)
-    cmd = [
-        ffmpeg,
-        "-y",
-        "-i", str(webm_path),
-        "-c:v", "libx264",
-        "-preset", "veryfast",
-        "-crf", "23",
-        "-pix_fmt", "yuv420p",
-        str(mp4_path),
-    ]
-
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"ffmpeg conversion failed (exit {result.returncode}):\n"
-            + result.stderr.decode(errors="replace")
-        )
-
-    webm_path.unlink(missing_ok=True)
-    print(f"[browser-mcp] Recording saved: {mp4_path}", file=sys.stderr)
-    return mp4_path
-
-
 async def close_all():
     global _pw, _context, _page
-    video_path = None
     if _page and _page.video:
         try:
             await _page.close()
-            video_path = Path(await _page.video.path())
         except Exception as e:
-            print(f"[browser-mcp] Video finalize failed: {type(e).__name__}: {e}", file=sys.stderr)
+            print(f"[browser-mcp] Page close failed: {type(e).__name__}: {e}", file=sys.stderr)
     if _context:
         await _context.close()
     if _pw:
         await _pw.stop()
     _pw = _context = _page = None
-    if video_path and video_path.exists():
-        try:
-            _transcode_to_mp4(video_path)
-        except RuntimeError as e:
-            print(f"[browser-mcp] ERROR: {e}", file=sys.stderr)
-            sys.exit(1)
-
-    # Failsafe: convert any remaining .webm files left by Playwright
-    for webm in RECORD_VIDEO_DIR.glob("*.webm"):
-        print(f"[browser-mcp] Failsafe converting leftover: {webm.name}", file=sys.stderr)
-        try:
-            _transcode_to_mp4(webm)
-        except RuntimeError as e:
-            print(f"[browser-mcp] Failsafe ERROR: {e}", file=sys.stderr)
+    print("[browser-mcp] Browser closed. Recordings saved as .webm in:", RECORD_VIDEO_DIR, file=sys.stderr)
 
 
 async def snap() -> str:
@@ -402,34 +348,72 @@ async def _run(name: str, a: dict) -> CallToolResult:
 # ── HTTP Recording Server ─────────────────────────────────────────────────────
 HTTP_PORT = int(os.getenv("MCP_HTTP_PORT", "80"))
 
+RECORDING_EXTENSIONS = {".webm", ".mp4"}
 
-async def handle_recording(request):
-    """GET /recording — returns the latest mp4 as base64 JSON."""
-    mp4_files = sorted(RECORD_VIDEO_DIR.glob("*.mp4"), key=lambda f: f.stat().st_mtime)
-    if not mp4_files:
-        return aiohttp_web.json_response({"error": "No recordings found"}, status=404)
-    latest = mp4_files[-1]
-    data = base64.b64encode(latest.read_bytes()).decode()
+
+def _list_recordings() -> list[dict]:
+    """Return metadata for all recording files, sorted newest first."""
+    files = []
+    for ext in RECORDING_EXTENSIONS:
+        for f in RECORD_VIDEO_DIR.glob(f"*{ext}"):
+            stat = f.stat()
+            files.append({
+                "filename": f.name,
+                "size_bytes": stat.st_size,
+                "modified": stat.st_mtime,
+            })
+    files.sort(key=lambda x: x["modified"], reverse=True)
+    # Don't expose internal mtime to the caller
+    for f in files:
+        del f["modified"]
+    return files
+
+
+async def handle_list_recordings(request):
+    """GET /recordings — lists all recording files."""
+    recordings = _list_recordings()
+    return aiohttp_web.json_response({"recordings": recordings, "count": len(recordings)})
+
+
+async def handle_download_recording(request):
+    """GET /recording/download/{filename} — returns the named file as base64 JSON."""
+    filename = request.match_info.get("filename", "")
+
+    # Basic path-traversal guard
+    if not filename or "/" in filename or "\\" in filename or ".." in filename:
+        return aiohttp_web.json_response({"error": "Invalid filename"}, status=400)
+
+    file_path = RECORD_VIDEO_DIR / filename
+
+    if not file_path.exists():
+        return aiohttp_web.json_response({"error": f"File not found: {filename}"}, status=404)
+
+    if file_path.suffix.lower() not in RECORDING_EXTENSIONS:
+        return aiohttp_web.json_response({"error": "File type not allowed"}, status=400)
+
+    data = base64.b64encode(file_path.read_bytes()).decode()
     return aiohttp_web.json_response({
-        "filename": latest.name,
-        "size_bytes": latest.stat().st_size,
+        "filename": filename,
+        "size_bytes": file_path.stat().st_size,
         "base64": data,
     })
 
 
-async def handle_delete(request):
-    """DELETE /recordings — deletes all mp4 files in the recordings folder."""
+async def handle_delete_recordings(request):
+    """DELETE /recordings — deletes all recording files."""
     deleted = []
-    for f in RECORD_VIDEO_DIR.glob("*.mp4"):
-        f.unlink()
-        deleted.append(f.name)
+    for ext in RECORDING_EXTENSIONS:
+        for f in RECORD_VIDEO_DIR.glob(f"*{ext}"):
+            f.unlink()
+            deleted.append(f.name)
     return aiohttp_web.json_response({"deleted": deleted, "count": len(deleted)})
 
 
 async def start_http_server():
     http_app = aiohttp_web.Application()
-    http_app.router.add_get("/recording", handle_recording)
-    http_app.router.add_delete("/recordings", handle_delete)
+    http_app.router.add_get("/recordings", handle_list_recordings)
+    http_app.router.add_get("/recording/download/{filename}", handle_download_recording)
+    http_app.router.add_delete("/recordings", handle_delete_recordings)
     runner = aiohttp_web.AppRunner(http_app)
     await runner.setup()
     site = aiohttp_web.TCPSite(runner, "0.0.0.0", HTTP_PORT)
@@ -451,5 +435,3 @@ if __name__ == "__main__":
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     asyncio.run(main())
-
-
