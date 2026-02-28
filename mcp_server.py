@@ -140,11 +140,21 @@ async def get_page():
 
         await _page.route("**/*", block_local)
 
-        def close_popups(new_page):
+        async def close_popups(new_page):
             if new_page is not _page:
-                asyncio.ensure_future(new_page.close())
+                # Stop the recording before closing so Playwright doesn't
+                # save a blank .webm for this throwaway page.
+                if new_page.video:
+                    try:
+                        await new_page.video.delete()
+                    except Exception:
+                        pass
+                await new_page.close()
 
-        _context.on("page", close_popups)
+        def schedule_close_popups(new_page):
+            asyncio.ensure_future(close_popups(new_page))
+
+        _context.on("page", schedule_close_popups)
 
     return _page
 
