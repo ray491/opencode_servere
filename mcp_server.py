@@ -358,7 +358,7 @@ async def _run(name: str, a: dict) -> CallToolResult:
 # ── HTTP Recording Server ─────────────────────────────────────────────────────
 HTTP_PORT = int(os.getenv("MCP_HTTP_PORT", "80"))
 
-RECORDING_EXTENSIONS = {".webm", ".mp4"}
+RECORDING_EXTENSIONS = {".webm"}
 
 
 def _list_recordings() -> list[dict]:
@@ -445,3 +445,4 @@ if __name__ == "__main__":
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     asyncio.run(main())
+
