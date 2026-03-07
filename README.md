@@ -1,5 +1,8 @@
-# opencode-browser-mcp
-A Docker container running [opencode](https://opencode.ai) with a browser automation MCP server powered by Playwright. Records all browser sessions as webm and exposes them via a simple HTTP API.
+# opencode-browser-mcp + Odoo MCP
+
+This project combines:
+- **opencode** with a Playwright browser MCP server and recording API
+- **Odoo MCP** (module + Python MCP server) for full CRUD access with granular permissions
 
 ## What's inside
 - **opencode** — AI coding agent, served on port `4096`
@@ -7,22 +10,25 @@ A Docker container running [opencode](https://opencode.ai) with a browser automa
 - **HTTP API** — list, download, or delete session recordings on port `80`
 - **SFTP access** — browse the container filesystem via SSH on port `22`
 - **Xvfb** — virtual display so the browser runs headlessly inside the container
+- **Odoo MCP module** — JSON endpoints with CRUD and per-model permissions
+- **Odoo MCP server** — Python MCP server that calls the Odoo module endpoints
 
 ## Requirements
 - Docker
 - `opencode.json` — your opencode config file
 - `mcp_server.py` — the browser MCP server (included)
+- Odoo instance with addons path access
 
-## Getting started
+## Getting started (opencode + browser MCP)
 
 ### 1. Build
 ```bash
+docker run -d \
 docker build -t opencode-browser-mcp .
 ```
 
 ### 2. Run
 ```bash
-docker run -d \
   -p 4096:4096 \
   -p 80:80 \
   -p 22:22 \
@@ -32,6 +38,39 @@ docker run -d \
 
 ### 3. Connect to opencode
 Open `http://localhost:4096` in your browser.
+
+## Odoo MCP (module + Python server)
+
+### 1) Install the Odoo module
+
+1. Copy `odoo_mcp/odoo_module/odoo_mcp_module` into your Odoo addons path.
+2. Update your Apps list and install **MCP Read API**.
+3. (Recommended) Set a token in Odoo:
+   - Settings -> Technical -> Parameters -> System Parameters
+   - Key: `mcp.token`
+   - Value: `<your-secret>`
+4. Create per-model MCP permissions in Odoo:
+   - Settings -> MCP -> Access
+   - Enable the models and operations you want to allow
+   - Default is deny for any model not listed
+5. Create an Odoo API key for the user that should be used by MCP
+
+System parameters (optional):
+- `mcp.require_auth` (default 1) requires login+api_key on every request
+- `mcp.default_deny` (default 1) denies any model not listed in MCP Access
+
+### 2) Run the Python MCP server
+
+```bash
+cd odoo_mcp/python_server
+python -m pip install -r requirements.txt
+set ODOO_BASE_URL=http://localhost:8069
+set ODOO_DB=your_db_name
+set ODOO_MCP_TOKEN=your-secret
+set ODOO_LOGIN=your_odoo_login
+set ODOO_API_KEY=your_odoo_api_key
+python server.py
+```
 
 ## SFTP access
 Connect with any SFTP client (FileZilla, WinSCP, etc.):
@@ -127,3 +166,6 @@ DELETE http://localhost/recordings
 - Playwright records sessions as `.webm` files (a CDP limitation). Recordings are saved as-is — no transcoding required.
 - The browser blocks requests to `localhost`, `127.x`, `192.168.x`, `10.x`, and `file://` URLs as a sandbox policy.
 - Real Chrome is used if found at common paths to reduce bot detection. Falls back to Playwright's bundled Chromium otherwise.
+- The Odoo module respects normal record rules and access rights.
+- If `mcp.token` is set, requests must include the token.
+- The Python MCP server forwards token/login/api_key automatically.
