@@ -3,7 +3,13 @@ FROM node:20-bookworm
 ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     MCP_HEADLESS=false \
-    MCP_VIDEO_DIR=/app/recordings
+    MCP_VIDEO_DIR=/app/recordings \
+    MCP_HTTP_PORT=80 \
+    ODOO_BASE_URL=http://odoo:8069 \
+    ODOO_DB=your_db_name \
+    ODOO_MCP_TOKEN=your-secret \
+    ODOO_LOGIN=your_odoo_login \
+    ODOO_API_KEY=your_odoo_api_key
 
 RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
     && apt-get update -o Acquire::Retries=3 -o Acquire::https::Timeout=30 \
@@ -17,7 +23,7 @@ RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.l
     openssh-server \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3 -m pip install --no-cache-dir mcp playwright aiohttp --break-system-packages \
+RUN python3 -m pip install --no-cache-dir mcp playwright aiohttp httpx --break-system-packages \
     && playwright install --with-deps
 RUN npm i -g opencode-ai
 
@@ -25,6 +31,7 @@ WORKDIR /app
 
 COPY mcp_server.py /app/mcp_server.py
 COPY opencode.json /app/opencode.json
+COPY odoo_mcp/python_server /app/odoo_mcp_server
 
 RUN mkdir -p /root/.config/opencode \
     && cp /app/opencode.json /root/.config/opencode/opencode.json
@@ -45,4 +52,5 @@ EXPOSE 4096
 EXPOSE 80
 EXPOSE 22
 EXPOSE 1455
+
 CMD ["/entrypoint.sh"]
