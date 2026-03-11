@@ -41,6 +41,6 @@
         </field>
     </record>
 
-    <menuitem id="menu_mcp_root" name="MCP" parent="base.menu_settings" groups="base.group_system"/>
+    <menuitem id="menu_mcp_root" name="MCP" parent="base.menu_administration" groups="base.group_system"/>
     <menuitem id="menu_mcp_access" name="Access" parent="menu_mcp_root" action="action_mcp_model_access" groups="base.group_system"/>
 </odoo>
